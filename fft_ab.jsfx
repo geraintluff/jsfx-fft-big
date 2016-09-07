@@ -1,126 +1,103 @@
 @init
 
+function peak_index(buffer, N) local(i) (
+  maxvalue = 0;
+  maxindex = 0;
+  i = 0;
+  while (i < N) (
+    abs(buffer[i]) > abs(maxvalue) ? (
+      maxvalue = buffer[i];
+      maxindex = i;
+    );
+    i += 1;
+  );
+  maxindex;
+);
+
 // working_space must be 2*sizeB big
 function fft_ab(block, sizeA, sizeB, working_space)
-		local(i, j, twiddle_amount, twiddle_r, twiddle_i, index1, index2, tmp, N)
-		(
-	N = sizeA*sizeB;
-	i = 0;
-	// Perform the stepwise FFTs
-	while (i < sizeA) (
-		j = 0;
-		// Copy to working area
-		while (j < sizeB) (
-			working_space[j*2] = block[i*2 + j*sizeA*2];
-			working_space[j*2 + 1] = block[i*2 + j*sizeA*2 + 1];
-			j += 1;
-		);
-		fft(working_space, sizeB);
-		fft_permute(working_space, sizeB);
-		// Copy back, with twiddle factors
-		j = 0;
-		while (j < sizeB) (
-			twiddle_amount = i*j/N;
-			twiddle_r = cos(twiddle_amount*2*$pi);
-			twiddle_i = sin(twiddle_amount*2*$pi);
-		
-			block[i*2 + j*sizeA*2] = working_space[j*2]*twiddle_r - working_space[j*2 + 1]*twiddle_i;
-			block[i*2 + j*sizeA*2 + 1] = working_space[j*2]*twiddle_i + working_space[j*2 + 1]*twiddle_r;
-			j += 1;
-		);
+    local(N, i, j, twiddle_amount, twiddle_r, twiddle_i, Nbits, shiftleftbits, shiftrightbits, bitmask, index1, source_index, target_index, bitmask, tmp_r, tmp_i)
+    (
+  N = sizeA*sizeB;
+  i = 0;
+  // Perform the stepwise FFTs
+  while (i < sizeA) (
+    j = 0;
+    // Copy to working area
+    while (j < sizeB) (
+      working_space[j*2] = block[(i + j*sizeA)*2];
+      working_space[j*2 + 1] = block[(i + j*sizeA)*2 + 1];
+      j += 1;
+    );
+    fft(working_space, sizeB);
+    fft_permute(working_space, sizeB);
+    // Copy back, with twiddle factors
+    j = 0;
+    while (j < sizeB) (
+      twiddle_amount = -i*j/N;
+      twiddle_r = cos(twiddle_amount*2*$pi);
+      twiddle_i = sin(twiddle_amount*2*$pi);
+    
+      block[(i + j*sizeA)*2] = working_space[j*2]*twiddle_r - working_space[j*2 + 1]*twiddle_i;
+      block[(i + j*sizeA)*2 + 1] = working_space[j*2]*twiddle_i + working_space[j*2 + 1]*twiddle_r;
+      j += 1;
+    );
 
-		i += 1;
-	);
-	
-	// Perform the in-place FFTs
-	j = 0;
-	while (j < sizeB) (
-		fft(block + j*sizeA*2, sizeA);
-		fft_permute(block + j*sizeA*2, sizeA);
-		j += 1;
-	);
-	
-	// Permute
-	i = 0;
-	while (i < sizeA) (
-		j = 0;
-		while (j < sizeB) (
-			index1 = i*sizeB + j;
-			index2 = i + j*sizeA;
+    i += 1;
+  );
+  
+  // Perform the in-place FFTs
+  j = 0;
+  while (j < sizeB) (
+    fft(block + j*sizeA*2, sizeA);
+    fft_permute(block + j*sizeA*2, sizeA);
+    j += 1;
+  );
+  
+  // Permute
+  Nbits = 1;
+  while ((1<<Nbits) < N) (
+    Nbits += 1;
+  );
+  shiftleftbits = 1; // This is the shift required to find the source index for a given target
+  bitmask = N - 1;
+  while ((1<<shiftleftbits) < sizeA) (
+    shiftleftbits += 1;
+  );
+  shiftrightbits = Nbits - shiftleftbits;
+  
+  index1 = 1; // Source index
+  while (index1 < 200) (
+    target_index = index1;
+    while (
+      target_index = ((target_index<<shiftleftbits)&bitmask) + (target_index>>shiftrightbits);
+      target_index > index1;
+    );
+    target_index == index1 ? ( // This index is the shortest in its permutation group
+      tmp_r = block[target_index*2];
+      tmp_i = block[target_index*2 + 1];
+      source_index = ((target_index<<shiftleftbits)&bitmask) + (target_index>>shiftrightbits);
+      while (source_index != index1) (
+        block[target_index*2] = block[source_index*2];
+        block[target_index*2 + 1] = block[source_index*2 + 1];
+        target_index = source_index;
+        source_index = ((target_index<<shiftleftbits)&bitmask) + (target_index>>shiftrightbits);
+      );
+      block[target_index*2] = tmp_r;
+      block[target_index*2 + 1] = tmp_l;
+      
+      debug.source_index = source_index;
+      debug.target_index = target_index;
+    );
+    index1 += 1;
+  );
 
-			tmp = block[index1*2];
-			block[index1*2] = block[index2*2];
-			block[index2*2] = tmp;
-			tmp = block[index1*2 + 1];
-			block[index1*2 + 1] = block[index2*2 + 1];
-			block[index2*2 + 1] = tmp;
-			j += 1;
-		);
-		i += 1;
-	);
+  debug.peakindex = peak_index(block, N*2)/2;
+  
 );
 
-// working_space must be 2*sizeB big
-function ifft_ab(block, sizeA, sizeB, working_space)
-		local(i, j, twiddle_amount, twiddle_r, twiddle_i, index1, index2, tmp, N)
-		(
-	N = sizeA*sizeB;
+yscale = 1;
 
-	// Permute
-	i = 0;
-	while (i < sizeA) (
-		j = 0;
-		while (j < sizeB) (
-			index1 = i*sizeB + j;
-			index2 = i + j*sizeA;
-
-			tmp = block[index1*2];
-			block[index1*2] = block[index2*2];
-			block[index2*2] = tmp;
-			tmp = block[index1*2 + 1];
-			block[index1*2 + 1] = block[index2*2 + 1];
-			block[index2*2 + 1] = tmp;
-			j += 1;
-		);
-		i += 1;
-	);
-
-	// Perform the in-place IFFTs
-	j = 0;
-	while (j < sizeB) (
-		fft_ipermute(block + j*sizeA*2, sizeA);
-		ifft(block + j*sizeA*2, sizeA);
-		j += 1;
-	);
-
-	i = 0;
-	// Perform the stepwise IFFTs
-	while (i < sizeA) (
-		j = 0;
-		// Copy to working area
-		while (j < sizeB) (
-			working_space[j*2] = block[i*2 + j*sizeA*2];
-			working_space[j*2 + 1] = block[i*2 + j*sizeA*2 + 1];
-			j += 1;
-		);
-		fft_ipermute(working_space, sizeB);
-		ifft(working_space, sizeB);
-		// Copy back, dividing by twiddle factors
-		j = 0;
-		while (j < sizeB) (
-			twiddle_amount = -i*j/N;
-			twiddle_r = cos(twiddle_amount*2*$pi);
-			twiddle_i = sin(twiddle_amount*2*$pi);
-		
-			block[i*2 + j*sizeA*2] = working_space[j*2]*twiddle_r - working_space[j*2 + 1]*twiddle_i;
-			block[i*2 + j*sizeA*2 + 1] = working_space[j*2]*twiddle_i + working_space[j*2 + 1]*twiddle_r;
-			j += 1;
-		);
-
-		i += 1;
-	);
-);
-	
 @block
 
 original_block = 0;
@@ -130,21 +107,56 @@ working_space = 65536*3;
 
 i = 0;
 while (i < 65536) (
-	original_block[i] = fft_block[i] = native_block[i] = rand()*2 - 1;
-	debug.original = original_block[i];
-	debug.native = native_block[i];
-	i += 1;
+  t = (i>>1)/512;
+  c = i%2;
+  value = c ? 0 : cos(t*2*$pi);
+  value = cos(10*cos(t*2*$pi));
+  value = rand()*2 - 1;
+  original_block[i] = fft_block[i] = native_block[i] = value;
+  i += 1;
 );
 
 fft(native_block, 512);
-//fft_permute(native_block, 512);
+fft_permute(native_block, 512);
 
 fft_ab(fft_block, 16, 32, working_space);
 
+fft0_native2 = native_block[2];
+fft0_ab2 = fft_block[2];
+
+diff0 = fft_block[0] - native_block[0];
+diff1 = fft_block[1] - native_block[1];
+diff2 = fft_block[2] - native_block[2];
+diff3 = fft_block[3] - native_block[3];
+
+diff512 = fft_block[512] - native_block[512];
+diff513 = fft_block[513] - native_block[513];
+
+diff13 = fft_block[13] - native_block[13];
+diff80 = fft_block[80] - native_block[80];
+diff290 = fft_block[290] - native_block[290];
+diff511_2 = fft_block[511*2] - native_block[511*2];
+
 //fft_ipermute(native_block, 512);
-ifft(native_block, 512);
+//ifft(native_block, 512);
 
-ifft_ab(fft_block, 16, 32, working_space);
+//ifft_ab(fft_block, 16, 32, working_space);
 
-diff0 = fft_block[0]/original_block[0];
-diff0b = native_block[0]/original_block[0];
+@gfx
+
+gfx_clear = 0;
+gfx_r = gfx_g = gfx_b = 1;
+
+gfx_x = 0;
+gfx_y = gfx_h/2;
+
+yscale += (max(maxabs*2, 0.0000001) - yscale)*0.01;
+maxabs = 0;
+while (gfx_x < gfx_w) (
+  index = floor(gfx_x/gfx_w*512*2);
+
+  gvalue = sqrt(fft_block[index]*fft_block[index]);
+
+  maxabs = max(abs(gvalue), maxabs);
+  gfx_lineto(gfx_x + 1, gfx_h*(1 - gvalue/yscale));
+);
