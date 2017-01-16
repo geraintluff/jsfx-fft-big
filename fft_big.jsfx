@@ -177,6 +177,9 @@ function ifft_big(block, N, working_space) local(sizeB) (
 	);
 );
 
+
+/* Test/development code
+
 yscale = 1;
 
 @block
@@ -243,3 +246,4 @@ while (gfx_x < gfx_w) (
 	maxabs = max(abs(gvalue), maxabs);
 	gfx_lineto(gfx_x + 1, gfx_h*(0.5 - 0.5*gvalue/yscale));
 );
+*/
